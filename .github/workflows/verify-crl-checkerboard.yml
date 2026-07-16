@@ -1,0 +1,73 @@
+name: External CRL checkerboard verifier
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/verify-crl-checkerboard.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: external-crl-checkerboard-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout canonical CRL proof branch
+        uses: actions/checkout@v4
+        with:
+          repository: DomTheDeveloper/crl
+          ref: solve/checkerboard-2n4-full
+          path: crl
+
+      - name: Install elan
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Source audit
+        working-directory: crl/proofs/lean/Checkerboard
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -RnE '\bsorry\b|\badmit\b|native_decide' --include='*.lean' .
+          ! grep -RnE '^[[:space:]]*(axiom|constant)[[:space:]]' --include='*.lean' Checkerboard Checkerboard.lean
+
+      - name: Resolve pinned Mathlib
+        working-directory: crl/proofs/lean/Checkerboard
+        run: lake update
+
+      - name: Fetch Mathlib cache
+        working-directory: crl/proofs/lean/Checkerboard
+        run: lake exe cache get
+
+      - name: Build exact theorem
+        working-directory: crl/proofs/lean/Checkerboard
+        shell: bash
+        run: |
+          set -o pipefail
+          lake build 2>&1 | tee build.log
+
+      - name: Explicit axiom audit
+        working-directory: crl/proofs/lean/Checkerboard
+        shell: bash
+        run: |
+          set -o pipefail
+          lake env lean Checkerboard/FinalTheorem.lean 2>&1 | tee axiom-audit.log
+          ! grep -q sorryAx axiom-audit.log
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-crl-checkerboard-audit
+          path: |
+            crl/proofs/lean/Checkerboard/build.log
+            crl/proofs/lean/Checkerboard/axiom-audit.log
+          if-no-files-found: ignore
