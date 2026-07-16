@@ -1,0 +1,1 @@
+[Compile the probe in Lean4web](https://live.lean-lang.org/?project=MathlibDemo&url=https%3A%2F%2Fraw.githubusercontent.com%2FDomTheDeveloper%2Fstarter-kit%2Fci%2Fcrl-checkerboard-verifier-v2%2Flean-tests%2Fcompiler_probe.lean)
