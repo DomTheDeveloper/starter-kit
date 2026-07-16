@@ -1,11 +1,7 @@
+# Verifier PR trigger: canonical source remains in DomTheDeveloper/crl.
 name: External CRL checkerboard verifier
 
 on:
-  push:
-    branches:
-      - ci/crl-checkerboard-verifier-v2
-    paths:
-      - ".github/workflows/verify-crl-checkerboard.yml"
   pull_request:
     paths:
       - ".github/workflows/verify-crl-checkerboard.yml"
