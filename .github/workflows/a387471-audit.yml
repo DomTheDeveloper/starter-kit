@@ -6,13 +6,18 @@ on:
     paths:
       - '.github/workflows/a387471-audit.yml'
       - 'A387471_AUDIT_TRIGGER'
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/a387471-audit.yml'
+      - 'A387471_AUDIT_TRIGGER'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: a387471-exact-audit
+  group: a387471-exact-audit-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -120,8 +125,18 @@ jobs:
           fi
           exit 0
 
-      - name: Publish complete audit log
+      - name: Upload complete audit log
         if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a387471-exact-audit
+          path: |
+            A387471_AUDIT_RESULT.txt
+            A387471_AUDIT_EXIT
+          if-no-files-found: warn
+
+      - name: Publish audit log on push runs
+        if: always() && github.event_name == 'push'
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
