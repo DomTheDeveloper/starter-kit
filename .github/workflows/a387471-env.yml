@@ -1,0 +1,51 @@
+name: Export A387471 Lean environment
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'A387471_ENV_TRIGGER'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a387471-portable-environment
+  cancel-in-progress: true
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch current CRL proof branch
+        run: |
+          git clone --branch agent/a387471-lean-reduction --single-branch https://github.com/DomTheDeveloper/crl.git crl
+      - name: Install pinned Lean
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Resolve packages and cache
+        working-directory: crl/proofs/lean/A387471
+        run: |
+          lake update
+          lake exe cache get || true
+          lean --version
+          lake --version
+      - name: Package portable compiler and project
+        run: |
+          TOOLCHAIN="$HOME/.elan/toolchains/leanprover--lean4---v4.27.0"
+          test -d "$TOOLCHAIN"
+          tar --zstd -cf lean427-toolchain.tar.zst -C "$HOME/.elan/toolchains" leanprover--lean4---v4.27.0
+          tar --zstd -cf a387471-project.tar.zst crl/proofs/lean/A387471
+          ls -lh *.tar.zst
+      - name: Upload portable environment
+        uses: actions/upload-artifact@v4
+        with:
+          name: a387471-lean427-portable-environment
+          path: |
+            lean427-toolchain.tar.zst
+            a387471-project.tar.zst
+          compression-level: 0
+          if-no-files-found: error
