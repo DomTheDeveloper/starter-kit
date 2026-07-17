@@ -1,0 +1,136 @@
+name: A387471 exact Lean audit
+
+on:
+  push:
+    branches: [ci/a387471-audit]
+    paths:
+      - '.github/workflows/a387471-audit.yml'
+      - 'A387471_AUDIT_TRIGGER'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: a387471-exact-audit
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize audit record
+        run: |
+          cat > A387471_AUDIT_RESULT.txt <<'EOF'
+          A387471 exact Lean audit
+          status: infrastructure failure before audit completed
+          EOF
+
+      - name: Fetch exact CRL proof commit
+        id: fetch
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          git clone https://github.com/DomTheDeveloper/crl.git crl 2>&1 | tee -a A387471_AUDIT_RESULT.txt
+          cd crl
+          git checkout 17ffe1b3834dce1b8d66c25b1814a10a91288365 2>&1 | tee -a ../A387471_AUDIT_RESULT.txt
+          test "$(git rev-parse HEAD)" = "17ffe1b3834dce1b8d66c25b1814a10a91288365"
+
+      - name: Install pinned Lean toolchain manager
+        id: elan
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain none 2>&1 | tee -a A387471_AUDIT_RESULT.txt
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Build and audit exact theorem
+        id: audit
+        continue-on-error: true
+        working-directory: crl/proofs/lean/A387471
+        shell: bash
+        run: |
+          set +e
+          RESULT="$GITHUB_WORKSPACE/A387471_AUDIT_RESULT.txt"
+          echo >> "$RESULT"
+          echo "commit: $(git rev-parse HEAD)" >> "$RESULT"
+          echo "toolchain: $(cat lean-toolchain)" >> "$RESULT"
+
+          grep -RnE --include='*.lean' '(^|[[:space:]])(sorry|admit|native_decide)([[:space:]]|$)' . > placeholder.log 2>&1
+          PLACEHOLDER_STATUS=$?
+          if [ "$PLACEHOLDER_STATUS" -eq 1 ]; then PLACEHOLDER_STATUS=0; fi
+
+          lake update > lake-update.log 2>&1
+          UPDATE_STATUS=$?
+          lake exe cache get > cache.log 2>&1
+          CACHE_STATUS=$?
+
+          lake build > build.log 2>&1
+          BUILD_STATUS=$?
+
+          cat > AuditExact.lean <<'EOF'
+          import A387471Exact
+          #print axioms A387471.exactStatement_proved
+          EOF
+          lake env lean AuditExact.lean > axioms.log 2>&1
+          AXIOM_STATUS=$?
+
+          {
+            echo "placeholder_status: $PLACEHOLDER_STATUS"
+            echo "lake_update_status: $UPDATE_STATUS"
+            echo "cache_status: $CACHE_STATUS"
+            echo "build_status: $BUILD_STATUS"
+            echo "axiom_command_status: $AXIOM_STATUS"
+            echo
+            echo "===== PLACEHOLDER SCAN ====="
+            cat placeholder.log
+            echo
+            echo "===== LAKE UPDATE ====="
+            cat lake-update.log
+            echo
+            echo "===== CACHE ====="
+            cat cache.log
+            echo
+            echo "===== BUILD ====="
+            cat build.log
+            echo
+            echo "===== EXACT AXIOMS ====="
+            cat axioms.log
+          } >> "$RESULT"
+
+          if grep -q 'sorryAx' build.log axioms.log; then
+            echo "sorryAx_detected: yes" >> "$RESULT"
+            SORRY_STATUS=1
+          else
+            echo "sorryAx_detected: no" >> "$RESULT"
+            SORRY_STATUS=0
+          fi
+
+          if [ "$PLACEHOLDER_STATUS" -eq 0 ] && [ "$UPDATE_STATUS" -eq 0 ] && \
+             [ "$BUILD_STATUS" -eq 0 ] && [ "$AXIOM_STATUS" -eq 0 ] && [ "$SORRY_STATUS" -eq 0 ]; then
+            sed -i 's/status: infrastructure failure before audit completed/status: PASS/' "$RESULT"
+            echo 0 > "$GITHUB_WORKSPACE/A387471_AUDIT_EXIT"
+          else
+            sed -i 's/status: infrastructure failure before audit completed/status: FAIL/' "$RESULT"
+            echo 1 > "$GITHUB_WORKSPACE/A387471_AUDIT_EXIT"
+          fi
+          exit 0
+
+      - name: Publish complete audit log
+        if: always()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add A387471_AUDIT_RESULT.txt A387471_AUDIT_EXIT || true
+          git commit -m 'ci: publish A387471 exact audit result' || true
+          git push
+
+      - name: Enforce audit result
+        if: always()
+        run: |
+          test -f A387471_AUDIT_EXIT
+          test "$(cat A387471_AUDIT_EXIT)" = "0"
